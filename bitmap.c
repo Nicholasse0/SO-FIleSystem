@@ -1,5 +1,7 @@
 #include "bitmap.h"
 
+#include <stdio.h>
+
 #define mask 0x01 // 00000001
 
 int BitMap_getBit(BitMap* bmp, int pos){
@@ -46,5 +48,14 @@ int BitMap_set(BitMap* bmp, int pos, int status){
 		// AND logico
 		bmp->entries[map.entry_num] = entry_i & (~num_bit);
 		return entry_i & (~num_bit);
+	}
+}
+
+void BitMap_print(BitMap* bmp, int n){
+	int i, bit;
+	char mask2[] = {128, 64, 32, 16, 8, 4, 2, 1};
+	for(i = 0; i < 8; i++){
+		bit = ((bmp->entries[n] & mask2[i]) != 0);
+		printf("%d", bit);
 	}
 }
