@@ -34,8 +34,11 @@ void DiskDriver_init(DiskDriver* disk, const char* filename, int num_blocks){
 		}
 		
 		// Alloco il nuovo disco
-		if(posix_fallocate(fd, 0, sizeof(DiskHeader) + bitmap_size)>0){
+		int ret;
+		ret = posix_fallocate(fd, 0, sizeof(DiskHeader) + bitmap_size);
+		if(ret){
 			printf("Errore nell'allocazione del disco");
+			return;
 		}
 	}
 
@@ -66,4 +69,129 @@ void DiskDriver_init(DiskDriver* disk, const char* filename, int num_blocks){
 	disk->header = disco_mappato;
 	disk->bitmap_data = (char*)disco_mappato + sizeof(DiskHeader);
 	disk->fd = fd;
+}
+
+
+int DiskDriver_readBlock(DiskDriver* disk, void* dest, int block_num){
+	if(block_num > disk->header->bitmap_blocks || block_num < 0 || dest == NULL || disk == NULL){
+		printf("ERRORE: parametri non validi\n");
+		return -1;
+	}
+
+	// Uso la bitmap per controllare se il blocco è libero
+	BitMap bmp;
+	bmp.num_bits = disk->header->bitmap_blocks;
+	bmp.entries = disk->bitmap_data;
+
+	// Se il blocco è vuoto -> non leggo
+	if(!BitMap_getBit(&bmp, block_num)) return -1;
+	
+	// Lo leggo
+	int ret = pread(disk->fd,
+			dest,
+			BLOCK_SIZE,
+			sizeof(DiskHeader) + disk->header->bitmap_entries + (block_num*BLOCK_SIZE));
+	if(ret < 0){
+		printf("ERRORE: pread()\n");
+		return -1;
+	}
+
+	return 0;
+}
+
+
+int DiskDriver_writeBlock(DiskDriver* disk, void* src, int block_num){
+	if(block_num > disk->header->bitmap_blocks || block_num < 0 || src == NULL || disk == NULL){
+		printf("ERRORE: parametri non validi\n");
+		return -1;
+	}
+
+	BitMap bmp;
+	bmp.num_bits = disk->header->bitmap_blocks;
+	bmp.entries = disk->bitmap_data;
+
+	// Se il blocco è pieno -> non scrivo
+	if(BitMap_getBit(&bmp, block_num)) return -1;
+	
+	// Se sto scrivendo sull'attuale primo blocco libero -> aggiorno il primo blocco libero
+	if(block_num == disk->header->first_free_block)
+		disk->header->first_free_block = DiskDriver_getFreeBlock(disk, block_num + 1);
+	
+	// Setto che il blocco è quindi ora occupato
+	if(BitMap_set(&bmp, block_num, 1) == -1) return -1;
+
+	// Aggiorno il numero dei blocchi liberi
+	disk->header->free_blocks -= 1;
+	
+	// Lo scrivo
+	int ret = pwrite(disk->fd,
+			src,
+			BLOCK_SIZE,
+			sizeof(DiskHeader) + disk->header->bitmap_entries + (block_num*BLOCK_SIZE));
+	if(ret < 0){
+		printf("ERRORE: pwrite()\n");
+		return -1;
+	}
+
+	return 0;
+}
+
+int DiskDriver_getFreeBlock(DiskDriver* disk, int start){
+	if(start > disk->header->bitmap_blocks){
+		printf("ERRORE: parametri non validi\n");
+		return -1;
+	}
+	
+	BitMap bmp;
+	bmp.num_bits = disk->header->bitmap_blocks;
+	bmp.entries = disk->bitmap_data;
+	
+	// Prendo e resttuisco il primo blocco libero
+	return BitMap_get(&bmp, start, 0);
+}
+
+int DiskDriver_freeBlock(DiskDriver* disk, int block_num){
+	if(block_num > disk->header->bitmap_blocks || block_num < 0 || disk == NULL){
+		printf("ERRORE: parametri non validi\n");
+		return -1;
+	}
+	
+	BitMap bmp;
+	bmp.num_bits = disk->header->bitmap_blocks;
+	bmp.entries = disk->bitmap_data;
+	
+	// Verifico che il bit non sia già libero
+	if(!BitMap_getBit(&bmp, block_num)) return -1;
+	
+	// Allora lo libero io -> lo setto a 0
+	if(BitMap_set(&bmp, block_num, 0) < 0){
+		printf("ERRORE: BitMap_set() - freeBlock\n");
+		return -1;
+	}
+	
+	// In caso devo aggiornare il primo blocco libero
+	if(block_num < disk->header->first_free_block)
+		disk->header->first_free_block = block_num;
+	
+	// Aggiorno il numero dei blocchi liberi
+	disk->header->free_blocks++;
+	
+	return 0;
+}
+
+// msync: scarica le modifiche apportate alla copia interna di un file che
+//	è stato mappato in memoria
+int DiskDriver_flush(DiskDriver* disk){
+	int bitmap_size = disk->header->num_blocks / 8;	// Dimensione bitmap
+	if(disk->header->num_blocks % 8) bitmap_size++;	// Arrotondo
+
+	int ret = msync(disk->header,
+			(size_t)sizeof(DiskHeader) + bitmap_size,
+			MS_SYNC);
+	if(ret < 0){
+		printf("ERROR: msync()");
+		return -1;
+	}
+
+	return 0;
 }
