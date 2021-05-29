@@ -6,6 +6,209 @@
 #include <stdlib.h>
 #include <string.h>
 
+// Dimensione FirstDirectoryBlock
+#define FDB_space (BLOCK_SIZE - sizeof(BlockHeader) - sizeof(FileControlBlock) - sizeof(int))/sizeof(int) 
+
+// Dimensione DirectoryBlock
+#define DB_space (BLOCK_SIZE - sizeof(BlockHeader))/sizeof(int)
+
+// Funzione ausiliaria per verificare che il file non esista già nell dir corrente
+int FileInDir(DiskDriver* disk, int entries, int* file_blocks, const char* filename){
+	FirstFileBlock ffb_aux;
+	int i;
+	for(i = 0; i < entries; i++)
+		if(file_blocks[i] > 0 && (DiskDriver_readBlock(disk, &ffb_aux, file_blocks[i])) != -1)
+			if(!strncmp(ffb_aux.fcb.name, filename, 128))
+				return i;
+	return -1;
+	// Ritorna il blocco i-esimo o -1 se non esiste
+}
+
+//directories need to have all 0s at first
+DirectoryHandle* SimpleFS_init(SimpleFS* fs, DiskDriver* disk){
+	if(fs == NULL || disk == NULL){
+		printf("ERRORE: parametri non validi");
+		return NULL;
+	}
+
+	// Assegno il disco al FileSystem
+	fs->disk = disk;
+	
+	FirstDirectoryBlock* fdb = malloc(sizeof(FirstDirectoryBlock));
+	
+	// Leggo il blocco 0 per la root, se c'è -> accanno
+	int ret = DiskDriver_readBlock(disk, fdb, 0);
+	if(ret == -1){
+		free(fdb);
+		return NULL;
+	}
+	
+	// Else creo l'handle e lo restituisco
+	DirectoryHandle* dh = (DirectoryHandle*) malloc(sizeof(DirectoryHandle));
+	dh->sfs = fs;
+	dh->dcb = fdb;
+	dh->directory = fdb;
+	dh->pos_in_block = 0;
+	
+	return dh;
+}
+
+void SimpleFS_format(SimpleFS* fs){
+	if(fs==NULL){
+		printf("ERRORE: parametri non validi");
+		return;
+	}
+	
+	// Assegno i blocchi liberi
+	fs->disk->header->free_blocks = fs->disk->header->num_blocks;
+	fs->disk->header->first_free_block = 0;
+	
+	// Formatto la root
+	FirstDirectoryBlock root = {0};
+	root.header.block_in_file = 0;
+	root.header.previous_block = -1;
+	root.header.next_block = -1;
+	
+	root.fcb.directory_block = -1;
+	root.fcb.block_in_disk = 0;
+	root.fcb.is_dir = 1;
+	root.fcb.size_in_blocks = 1;
+	strcpy(root.fcb.name, "/");
+	
+	// Scrivo la root nel primo blocco (0)
+	DiskDriver_writeBlock(fs->disk, &root, 0); 
+}
+
+FileHandle* SimpleFS_createFile(DirectoryHandle* d, const char* filename){
+	if(d == NULL || filename == NULL){
+		printf("ERRORE: parametri non validi");
+		return NULL;
+	}
+	
+	int ret;
+	FirstDirectoryBlock* fdb = d->dcb;
+	DiskDriver* disk = d->sfs->disk;
+	
+	// Un file o sta nel FDB o nel DB -> li controllo
+	if(fdb->num_entries > 0){
+		// Verifico che il file non esiste già nel FDB
+		ret = FileInDir(disk, FDB_space, fdb->file_blocks, filename);
+		if(ret >= 0){
+			printf("ERRORE: Il file %s già esiste nel FDB\n", filename);
+			return NULL;
+		}
+		
+		int next = fdb->header.next_block;
+		DirectoryBlock db;
+		
+		// Verifico che non esista nel DB -> controllo tutti i blocchi
+		while(next != -1){
+			ret = DiskDriver_readBlock(disk, &db, next);
+			if(ret < 0){
+				printf("ERRORE: readBlock()");
+				return NULL;
+			}
+			
+			ret = FileInDir(disk, DB_space, db.file_blocks, filename);
+			if(ret >= 0){
+				printf("ERRORE: Il file già esiste nel DB\n");
+				return NULL;
+			}
+			next = db.header.next_block; //next DirectoryBlock
+		}
+	}
+	
+	// Mi sono asicurato che il file non esiste già
+	// Prendo un blocco vuoto e procedo con la creazione
+	int block_free = DiskDriver_getFreeBlock(disk, disk->header->first_free_block);
+	if(block_free == -1){
+		printf("ERRORE: Niente blocchi vuoti\n");
+		return NULL;
+	}
+	
+	FirstFileBlock* ffb_new = calloc(1, sizeof(FirstFileBlock));
+	ffb_new->header.block_in_file = 0;
+	ffb_new->header.previous_block = -1;
+	ffb_new->header.next_block = -1;
+	
+	ffb_new->fcb.directory_block = fdb->fcb.block_in_disk;
+	ffb_new->fcb.block_in_disk = block_free;
+	ffb_new->fcb.is_dir = 0;
+	ffb_new->fcb.size_in_bytes = 0;
+	ffb_new->fcb.size_in_blocks = 1;
+
+	strncpy(ffb_new->fcb.name, filename, 128);
+	
+	// Scrivo il file su disco
+	ret = DiskDriver_writeBlock(disk, ffb_new, block_free);
+	if(ret < 0){
+		printf("ERRORE: writeBlock()\n");
+		return NULL;
+	}
+	
+	// Cerco posto in FDB o DB e poi salvo tutto
+	int i = 0;																				
+	int block_number = fdb->fcb.block_in_disk; // # blocco sul disco
+	int entry = 0;	// # entry in file_blocks
+	int put_in_DB = 0; // 0 -> fdb, 1 -> db
+
+	// Se non c'è posto in FDB mi serve un DB
+	DirectoryBlock db;
+
+	// Posto in FDB
+	if (fdb->num_entries < FDB_space){																
+		int* blocks = fdb->file_blocks;
+		for(i = 0; i < FDB_space; i++)																
+			if (blocks[i] == 0){
+				// Blocco libero trovato
+				entry = i;
+				break;
+			}
+	}
+	else{																							
+		put_in_DB = 1;
+
+		int* blocks = db.file_blocks;
+		for(i = 0; i < DB_space; i++){																
+			if (blocks[i] == 0){
+				// Blocco libero trovato
+				entry = i;
+				break;
+			}
+		}	
+	}
+
+	if (put_in_DB == 0){ // FDB
+		printf("Salvo %s nel FDB\n", filename);
+		fdb->num_entries++;	
+		fdb->file_blocks[entry] = block_free;				
+		DiskDriver_updateBlock(disk, fdb, fdb->fcb.block_in_disk);
+	}
+	 else{ // DB
+		printf("Salvo %s in un DB\n", filename);
+		fdb->num_entries++;	
+		DiskDriver_updateBlock(disk, fdb, fdb->fcb.block_in_disk);
+		db.file_blocks[entry] = block_free;
+		DiskDriver_updateBlock(disk, &db, block_number);
+	}
+
+	// Creo e restituisco il file handle
+	FileHandle* fh = malloc(sizeof(FileHandle));
+	fh->sfs = d->sfs;
+	fh->fcb = ffb_new;
+	fh->directory = fdb;
+	fh->pos_in_file = 0;
+	
+	return fh;
+}
+
+int SimpleFS_close(FileHandle* f){
+	if(f == NULL) return -1;
+	free(f->fcb);
+	free(f);
+	return 0;
+}
+
 int main(int agc, char** argv) {
   printf("FirstBlock size %ld\n", sizeof(FirstFileBlock));
   printf("DataBlock size %ld\n", sizeof(FileBlock));
@@ -128,4 +331,28 @@ int main(int agc, char** argv) {
 		printf("ERRORE: remove()");
 		return -1;
 	}
+
+	//simplefs
+	printf("\nSIMPLEFS\n");
+	printf("Creo un nuovo disco di 128 blocchi e il FileSystem\n");
+	printf("Spazio nel FDB: %ld\nSpazio nel DB: %ld", FDB_space, DB_space);
+	DiskDriver disk2;
+	SimpleFS sfs;
+	DiskDriver_init(&disk2, "test2.txt", 128);
+	DiskDriver_flush(&disk2);
+	DirectoryHandle* dh = SimpleFS_init(&sfs, &disk2);
+	if(dh == NULL){
+		SimpleFS_format(&sfs);
+		dh = SimpleFS_init(&sfs, &disk2);
+		if(dh == NULL) exit(EXIT_FAILURE);
+	}
+	
+	printf("\n\nCreo 140 file\n");
+	char filename[10];
+	FileHandle* fh = NULL;
+	for(i = 0; i < 140; i++){
+		sprintf(filename, "%d", i);
+		fh = SimpleFS_createFile(dh, filename);
+	}
+	if(fh != NULL) SimpleFS_close(fh);
 }
