@@ -195,3 +195,21 @@ int DiskDriver_flush(DiskDriver* disk){
 
 	return 0;
 }
+
+// Come la write, ma devo aggiornare un blocco -> non mi serve la bitmap
+// 	la write infatti non mi avrebbe scritto su un blocco già occupato
+int DiskDriver_updateBlock(DiskDriver* disk, void* src, int block_num){
+	if(block_num > disk->header->bitmap_blocks || block_num < 0 || src == NULL || disk == NULL){
+		printf("Errori non validi");
+		return -1;
+	}
+
+	int fd = disk->fd;
+		
+	int ret = pwrite(fd, src, BLOCK_SIZE, sizeof(DiskHeader)+disk->header->bitmap_entries+(block_num*BLOCK_SIZE));
+	if(ret < 0){
+		printf("ERRORE: pwrite() - updateBlock");
+		return -1;
+	}
+	return 0;
+}
