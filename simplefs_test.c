@@ -293,6 +293,7 @@ int SimpleFS_readDir(char** names, DirectoryHandle* d){
 
 		int* blocks = fdb->file_blocks;
 		for(i = 0; i < FDB_space; i++){
+			if(blocks[i] < 0) continue;
 			ret = DiskDriver_readBlock(disk, &ffb, blocks[i]);
 			if(blocks[i] > 0 && ret != -1){
 				// Copio ul nome in names
@@ -1007,13 +1008,13 @@ int main(int agc, char** argv) {
 	printf("Risultato = %d [CORRETTO = 7]\n", BitMap_get(bmp, 7, 0));
 
 	printf("\nSetto questo bit a 1\n");
-	BitMap_set(bmp, 4, 1);
+	BitMap_set(bmp, 7, 1);
 	printf("Risultato = ");
 	BitMap_print(bmp, 0);
-	printf(" [CORRETTO = 01010101]\n");
+	printf(" [CORRETTO = 11000101]\n");
 	
-	printf("\nPrendo il primo bit a 1, a partire dalla posizione 7\n");
-	printf("Risultato = %d [Corretto = 15]\n", BitMap_get(bmp, 7, 1));	
+	printf("\nPrendo il primo bit a 1, a partire dalla posizione 8\n");
+	printf("Risultato = %d [Corretto = 15]\n", BitMap_get(bmp, 8, 1));	
 	free(bmp->entries);
 	free(bmp);
 	
@@ -1022,7 +1023,7 @@ int main(int agc, char** argv) {
   	DiskDriver disk;
 
 	printf("\n\n\n\n*** DISK DRIVER ***\n\n");
-	printf("Creo un disco con 3 blocchi: test.disk");
+	printf("Creo un disco con 3 blocchi: test.txt");
 
 	DiskDriver_init(&disk, "test.txt", 3);
 	printf("\n%d blocchi liberi\n\n", disk.header->free_blocks);
@@ -1141,7 +1142,7 @@ int main(int agc, char** argv) {
 	free(files);
 	printf("\n\n");
 
-	printf("Creo una directory d1\n\n");
+	printf(" * Creo una directory d1 *\n\n");
 	SimpleFS_mkDir(dh, "d1");
 	if(dh == NULL) exit(EXIT_FAILURE);
 	
@@ -1155,11 +1156,11 @@ int main(int agc, char** argv) {
 
 	printf("\n\n");
 
-	printf("Creo di nuovo una directory d1\n");
+	printf(" * Creo di nuovo una directory d1 *\n");
 	SimpleFS_mkDir(dh, "d1");
 	if(dh == NULL) exit(EXIT_FAILURE);
 
-	printf("\nEntro in d1\n");
+	printf("\n * Entro in d1 *\n");
 	SimpleFS_changeDir(dh, "d1");
 	printf("Path: ");
 	print_path(dh->sfs->disk, fdb, dh->dcb->fcb.block_in_disk);
@@ -1172,7 +1173,7 @@ int main(int agc, char** argv) {
 	}
 	if(fh != NULL) SimpleFS_close(fh);
 
-	printf("\nEsco da d1\n");
+	printf("\n * Esco da d1 *\n");
 	SimpleFS_changeDir(dh, "..");
 	printf("Path: ");
 	print_path(dh->sfs->disk, fdb, dh->dcb->fcb.block_in_disk);
@@ -1180,14 +1181,15 @@ int main(int agc, char** argv) {
 
 	printf("\n\n");
 
-	printf("\n * Creo un file per fare i test read/write/seek * \n\n");
+	printf("\n * Creo un file per fare i test read/write/seek * \n");
 	FileHandle* fh_test = SimpleFS_createFile(dh, "file_test.txt");
 	if(fh_test == NULL) exit(EXIT_FAILURE);
 	else{
 		FileHandle* f = SimpleFS_openFile(dh, "file_test.txt");
-		printf("Lo apro\n");
+		printf("\n * Apertura del file di prova *\n");
 		if(f == NULL) printf("ERRORE: il file non esiste\n");
 
+		printf("\n * Scrittura del carattere '7' per 800 volte * '\n");
 		// testo il wtite in FB
 		char txt[800];
 		for(i = 0; i < 800; i++){
@@ -1195,13 +1197,13 @@ int main(int agc, char** argv) {
 			else txt[i] = '7';
 		}
 		
-		SimpleFS_write(f, txt, 900);
+		SimpleFS_write(f, txt, 800);
 
 		// In realtà qui sovrascrivo quindi
-		printf("\nCi scrivo 'Questo è un file di prova, ora ne manipolo i dati'\n");
+		printf("\nCi sovrascrivo 'Questo è un file di prova, ora ne manipolo i dati'\n");
 
 		SimpleFS_write(f, "Questo è un file di prova, ora ne manipolo i dati", 50);
-		printf("\n\nLo leggo:\n");
+		printf("\n\nLeggo il file di prova:\n");
 
 		int size = 800;
 		char* data = (char*)malloc(sizeof(char)*size+1);
@@ -1212,7 +1214,7 @@ int main(int agc, char** argv) {
 
 		SimpleFS_seek(f, 0);
 
-		printf("\n\nLeggo i primi 26 bytes:\n");
+		printf("\n\n * Leggo i primi 26 bytes *:\n");
 
 		size = 26;
 		data = (char*)malloc(sizeof(char)*size+1);
@@ -1224,7 +1226,7 @@ int main(int agc, char** argv) {
 		SimpleFS_close(fh_test);
 	}
 
-	printf("Rimuovo i primi tre file\n");
+	printf(" * Rimuovo i primi tre file *\n");
 
 	for(i = 0; i < 3; i++){
 		sprintf(filename, "%d", i);
@@ -1238,6 +1240,7 @@ int main(int agc, char** argv) {
 		free(files[i]);
 
 	free(files);
+
 
 	printf("\n\n");
 
