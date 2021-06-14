@@ -49,3 +49,6 @@ int DiskDriver_getFreeBlock(DiskDriver* disk, int start);
 
 // writes the data (flushing the mmaps)
 int DiskDriver_flush(DiskDriver* disk);
+
+// updates a block in position block_num
+int DiskDriver_updateBlock(DiskDriver* disk, void* src, int block_num);

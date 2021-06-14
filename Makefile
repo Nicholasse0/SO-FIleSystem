@@ -17,11 +17,8 @@ HEADERS=bitmap.h\
 
 .phony: clean all
 
-
-all:	$(BINS) 
-
-so_game: simplefs_test.c $(OBJS) 
-	$(CC) $(CCOPTS)  -o $@ $^ $(LIBS)
+so_game: bitmap.c disk_driver.c simplefs_test.c $(HEADERS)
+		$(CC) $(CCOPTS) bitmap.c disk_driver.c simplefs_test.c -o simplefs_test
 
 clean:
 	rm -rf *.o *~  *.txt $(BINS)

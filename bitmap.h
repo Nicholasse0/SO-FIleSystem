@@ -28,3 +28,6 @@ int BitMap_set(BitMap* bmap, int pos, int status);
 
 // Funzione per stampare Bitmap n
 void BitMap_print(BitMap* bmp, int n);
+
+// Prende il bit in pos
+int BitMap_getBit(BitMap* bmp, int pos);
