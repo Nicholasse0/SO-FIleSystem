@@ -1,6 +1,6 @@
 #include "simplefs.h"
-#include "bitmap.c"
-#include "disk_driver.c"
+#include "bitmap.h"
+#include "disk_driver.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -170,7 +170,7 @@ FileHandle* SimpleFS_createFile(DirectoryHandle* d, const char* filename){
 	// Posto in FDB
 	if (fdb->num_entries < FDB_space){																
 		int* blocks = fdb->file_blocks;
-		for(i = 0; i < FDB_space; i++)																
+		for(i = 0; i < FDB_space; i++)															
 			if (blocks[i] == 0){
 				// Blocco libero trovato
 				found = 1;
@@ -178,7 +178,6 @@ FileHandle* SimpleFS_createFile(DirectoryHandle* d, const char* filename){
 				printf("trovato[%d] - ", entry);
 				break;
 			}
-			end_db_space++;
 	}
 	else{																							
 		put_in_DB = 1;
@@ -436,7 +435,6 @@ int SimpleFS_mkDir(DirectoryHandle* d, char* dirname){
 				printf("trovato[%d] - ", entry);
 				break;
 			}
-			end_db_space++;
 	}
 	else{																							
 		put_in_DB = 1;
@@ -1027,27 +1025,21 @@ int main(int agc, char** argv) {
 
 	DiskDriver_init(&disk, "test.txt", 3);
 	printf("\n%d blocchi liberi\n\n", disk.header->free_blocks);
-
-	// h -> Block header all'inizio di ogni blocco del disco	
-	BlockHeader h;
 	
 	int i;
 	char txt[BLOCK_SIZE - sizeof(BlockHeader)];
 
 	FileBlock* fb1 = (FileBlock*)malloc(sizeof(FileBlock));
-	fb1->header = h;
 	for(i = 0; i < BLOCK_SIZE - sizeof(BlockHeader); i++)
 		txt[i] = '0';
 	strcpy(fb1->data, txt);
 	
 	FileBlock* fb2 = (FileBlock*)malloc(sizeof(FileBlock));
-	fb2->header = h;
 	for(i = 0; i < BLOCK_SIZE - sizeof(BlockHeader); i++)
 		txt[i] = '1';
 	strcpy(fb2->data, txt);
 	
 	FileBlock* fb3 = (FileBlock*)malloc(sizeof(FileBlock));
-	fb3->header = h;
 	for(i = 0; i < BLOCK_SIZE - sizeof(BlockHeader); i++)
 		txt[i] = '2';
 	strcpy(fb3->data, txt);
@@ -1105,7 +1097,7 @@ int main(int agc, char** argv) {
 	}
 
 	//simplefs
-	printf("\n*** SIMPLEFS ***\n");
+	printf("\n\n\n*** SIMPLEFS ***\n");
 	printf("Creo un nuovo disco di 128 blocchi e il FileSystem\n");
 	printf("Spazio nel FDB: %ld\nSpazio nel DB: %ld", FDB_space, DB_space);
 	DiskDriver disk2;
